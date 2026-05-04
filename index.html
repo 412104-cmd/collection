@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>次世代雲端收藏管理系統 - Vault Engine v3</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        
+        :root {
+            --accent: #2563eb;
+            --bg-dark: #050507;
+            --card-dark: #111114;
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            overflow: hidden;
+            background-color: var(--bg-dark);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
+
+        .glass-panel {
+            background: rgba(12, 12, 15, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        .loading-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .card-gradient {
+            background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 100%);
+        }
+
+        /* 動畫效果 */
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="text-gray-100">
+
+    <div id="app" class="flex h-screen w-full">
+        <!-- 側邊導航欄 -->
+        <aside class="hidden lg:flex flex-col w-72 border-r border-gray-800 glass-panel h-screen z-40">
+            <div class="p-8 flex items-center gap-4">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+                    <i data-lucide="database" class="text-white w-5 h-5"></i>
+                </div>
+                <div class="flex flex-col">
+                    <span class="font-black text-xl tracking-tighter">資產核心</span>
+                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Vault Engine v3</span>
+                </div>
+            </div>
+
+            <div class="flex-1 px-4 space-y-6 overflow-y-auto custom-scrollbar">
+                <nav>
+                    <p class="px-4 text-[10px] font-black uppercase text-gray-500 mb-4 tracking-widest">分類索引</p>
+                    <div id="category-list" class="space-y-1">
+                        <!-- 分類按鈕動態渲染 -->
+                    </div>
+                </nav>
+
+                <div class="px-4">
+                    <p class="text-[10px] font-black uppercase text-gray-500 mb-4 tracking-widest">使用者狀態</p>
+                    <div id="user-profile" class="flex items-center gap-3 p-3 rounded-2xl bg-gray-900/40 border border-gray-800">
+                        <div id="user-avatar" class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center overflow-hidden border border-blue-400/20">
+                            <i data-lucide="user" class="text-white w-4 h-4"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <p id="user-name" class="text-xs font-black truncate">讀取中...</p>
+                            <p id="user-status" class="text-[8px] text-gray-500 truncate">正在同步雲端...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="auth-error-box" class="hidden mx-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex gap-2 fade-in">
+                    <i data-lucide="alert-circle" class="text-red-500 w-4 h-4 shrink-0 mt-0.5"></i>
+                    <p id="auth-error-msg" class="text-[9px] text-red-400 leading-tight"></p>
+                </div>
+            </div>
+
+            <div class="p-6 border-t border-gray-800 space-y-3">
+                <button id="btn-google-login" class="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white transition-all text-sm font-bold border border-blue-500/20">
+                    <i data-lucide="log-in" class="w-4 h-4"></i> Google 登入
+                </button>
+                <button id="btn-logout" class="hidden w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all text-sm font-bold">
+                    <i data-lucide="log-out" class="w-4 h-4"></i> 登出系統
+                </button>
+            </div>
+        </aside>
+
+        <!-- 主要內容區域 -->
+        <main class="flex-1 flex flex-col h-screen overflow-hidden relative">
+            <!-- 頂部功能列 -->
+            <header class="h-24 flex items-center justify-between px-8 border-b border-gray-800 bg-[#050507]/60 backdrop-blur-xl z-30">
+                <div class="flex-1 max-w-2xl relative">
+                    <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4"></i>
+                    <input id="search-input" type="text" placeholder="搜尋您的雲端寶庫..." 
+                        class="w-full pl-12 pr-4 py-3.5 rounded-2xl border bg-gray-900 border-gray-800 focus:border-blue-500 text-white outline-none transition-all focus:ring-4 focus:ring-blue-500/10">
+                </div>
+                <div class="ml-8 flex items-center gap-4">
+                    <button id="btn-open-add" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl text-sm font-black transition-all shadow-xl shadow-blue-500/20 active:scale-95">
+                        <i data-lucide="plus" class="w-4 h-4"></i> 新增收藏
+                    </button>
+                </div>
+            </header>
+
+            <!-- 收藏物件展示網格 -->
+            <section id="main-content" class="flex-1 overflow-y-auto p-8 custom-scrollbar relative">
+                <!-- 背景流光 -->
+                <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/5 blur-[120px] -z-10"></div>
+                
+                <!-- 載入狀態 -->
+                <div id="loading-state" class="flex flex-col items-center justify-center py-32 h-full">
+                    <i data-lucide="loader-2" class="w-12 h-12 text-blue-600 loading-spin mb-4"></i>
+                    <p class="text-xs font-black tracking-widest uppercase opacity-50">正在從雲端讀取資料...</p>
+                </div>
+
+                <!-- 物件容器 -->
+                <div id="items-container" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8"></div>
+            </section>
+        </main>
+
+        <!-- 新增收藏 Modal -->
+        <div id="modal-add" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
+            <div class="w-full max-w-xl rounded-[2.5rem] border border-gray-800 bg-[#111114] shadow-2xl p-10 relative overflow-hidden">
+                <div class="flex justify-between items-center mb-8 relative z-10">
+                    <h2 class="text-3xl font-black tracking-tighter text-white">新增雲端收藏</h2>
+                    <button id="btn-close-add" class="p-2 hover:bg-red-500/10 hover:text-red-500 rounded-xl transition-colors">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <form id="form-add" class="space-y-6 relative z-10">
+                    <!-- 圖片上傳區 -->
+                    <div id="image-upload-area" class="flex flex-col items-center gap-4 p-8 rounded-[2rem] bg-gray-900/50 border border-gray-800 border-dashed relative transition-all hover:bg-gray-900/80">
+                        <div id="preview-content" class="text-6xl drop-shadow-xl">📦</div>
+                        <div class="flex gap-2">
+                            <label class="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20">
+                                <i data-lucide="image" class="w-4 h-4"></i> 上傳照片
+                                <input type="file" id="input-file" class="hidden" accept="image/*">
+                            </label>
+                            <input id="input-emoji" placeholder="或 Emoji" class="bg-gray-800 border-none rounded-xl px-4 py-2.5 text-xs w-28 text-center font-bold text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-black uppercase text-gray-500 ml-1">名稱</label>
+                            <input required id="input-name" class="w-full bg-gray-900 border border-gray-800 p-4 rounded-2xl text-white outline-none focus:border-blue-500 transition-all" placeholder="物品名稱...">
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-black uppercase text-gray-500 ml-1">分類</label>
+                            <select id="input-category" class="w-full bg-gray-900 border border-gray-800 p-4 rounded-2xl text-white outline-none cursor-pointer appearance-none focus:border-blue-500 transition-all">
+                                <!-- 由 JS 渲染 -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-black uppercase text-gray-500 ml-1">故事描述</label>
+                        <textarea id="input-desc" rows="3" class="w-full bg-gray-900 border border-gray-800 p-4 rounded-2xl text-white outline-none focus:border-blue-500 transition-all" placeholder="描述此收藏背後的價值..."></textarea>
+                    </div>
+
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-[1.5rem] shadow-xl shadow-blue-900/40 transform active:scale-95 transition-all">
+                        確認入庫並同步至雲端
+                    </button>
+                </form>
+                
+                <!-- 裝飾背景 -->
+                <div class="absolute -bottom-20 -right-20 w-64 h-64 bg-blue-600/10 blur-[80px]"></div>
+            </div>
+        </div>
+
+        <!-- 物件詳情 Modal -->
+        <div id="modal-detail" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in zoom-in-95">
+            <!-- 內容由 JS 動態生成 -->
+        </div>
+    </div>
+
+    <!-- Firebase SDK & 核心邏輯 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, updateDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- 1. 初始化 Firebase ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- 2. 應用程式狀態 ---
+        let state = {
+            user: null,
+            items: [],
+            currentCategory: '全部',
+            searchQuery: '',
+            base64Img: null,
+            categories: ['全部', '古董', '音樂', '卡牌', '鐘錶', '藝術', '穿搭']
+        };
+
+        // --- 3. UI 元素常數 ---
+        const UI = {
+            itemsContainer: document.getElementById('items-container'),
+            loadingState: document.getElementById('loading-state'),
+            categoryList: document.getElementById('category-list'),
+            inputCategory: document.getElementById('input-category'),
+            userName: document.getElementById('user-name'),
+            userStatus: document.getElementById('user-status'),
+            userAvatar: document.getElementById('user-avatar'),
+            modalAdd: document.getElementById('modal-add'),
+            modalDetail: document.getElementById('modal-detail'),
+            authErrorBox: document.getElementById('auth-error-box'),
+            authErrorMsg: document.getElementById('auth-error-msg'),
+            previewContent: document.getElementById('preview-content'),
+            formAdd: document.getElementById('form-add')
+        };
+
+        // --- 4. 驗證與登入邏輯 ---
+        const initAuth = async () => {
+            onAuthStateChanged(auth, async (user) => {
+                state.user = user;
+                if (user) {
+                    updateUserProfile(user);
+                    document.getElementById('btn-google-login').classList.add('hidden');
+                    document.getElementById('btn-logout').classList.remove('hidden');
+                    startDataSync(); // 登入後才開始同步
+                } else {
+                    // 若無使用者，嘗試自動匿名登入 (符合 Rule 3)
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) {
+                        console.error("Auth Error:", err);
+                    }
+                }
+            });
+        };
+
+        const updateUserProfile = (user) => {
+            UI.userName.innerText = user.isAnonymous ? '訪客收藏家' : (user.displayName || '收藏家');
+            UI.userStatus.innerText = user.isAnonymous ? '匿名模式' : user.email;
+            if (user.photoURL) {
+                UI.userAvatar.innerHTML = `<img src="${user.photoURL}" class="w-full h-full object-cover">`;
+            }
+        };
+
+        window.loginGoogle = async () => {
+            const provider = new GoogleAuthProvider();
+            try {
+                await signInWithPopup(auth, provider);
+                UI.authErrorBox.classList.add('hidden');
+            } catch (err) {
+                if (err.code === 'auth/unauthorized-domain') {
+                    UI.authErrorMsg.innerText = "此網域尚未授權。請於 Firebase 設定中將本網域加入白名單。目前為匿名模式。";
+                    UI.authErrorBox.classList.remove('hidden');
+                }
+            }
+        };
+
+        window.logout = () => signOut(auth);
+
+        // --- 5. Firestore 資料同步 ---
+        const startDataSync = () => {
+            // Rule 1: 公共路徑格式
+            const q = collection(db, 'artifacts', appId, 'public', 'data', 'collections');
+            
+            onSnapshot(q, (snapshot) => {
+                state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderCollection();
+                UI.loadingState.classList.add('hidden');
+            }, (error) => {
+                console.error("Firestore Error:", error);
+            });
+        };
+
+        // --- 6. 渲染邏輯 ---
+        const renderCollection = () => {
+            const filtered = state.items.filter(item => {
+                const matchCat = state.currentCategory === '全部' || item.category === state.currentCategory;
+                const matchSearch = item.name.toLowerCase().includes(state.searchQuery.toLowerCase());
+                return matchCat && matchSearch;
+            }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+            UI.itemsContainer.innerHTML = filtered.map(item => `
+                <div onclick="window.viewItem('${item.id}')" class="group relative rounded-[2.5rem] border border-gray-800 bg-[#111114] overflow-hidden transition-all duration-500 cursor-pointer hover:border-blue-500/50 hover:shadow-2xl hover:shadow-blue-500/10 card-gradient">
+                    <div class="relative h-56 flex items-center justify-center bg-gray-900/50 overflow-hidden">
+                        ${item.image && item.image.startsWith('data:image') 
+                            ? `<img src="${item.image}" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700">`
+                            : `<span class="text-7xl group-hover:scale-125 transition-transform duration-700">${item.image || '📦'}</span>`
+                        }
+                        
+                        <button onclick="window.toggleFav(event, '${item.id}', ${item.favorite})" 
+                                class="absolute top-5 right-5 p-3 rounded-2xl backdrop-blur-md transition-all z-10 ${item.favorite ? 'bg-red-500 text-white' : 'bg-black/30 text-white/50 hover:text-red-400'}">
+                            <i data-lucide="heart" class="w-4 h-4" ${item.favorite ? 'fill="currentColor"' : ''}></i>
+                        </button>
+                    </div>
+                    
+                    <div class="p-8">
+                        <div class="flex justify-between items-start mb-3">
+                            <span class="px-2.5 py-1 bg-blue-500/10 text-[10px] font-black text-blue-400 rounded-lg uppercase tracking-tighter border border-blue-500/10">${item.category}</span>
+                            ${state.user && state.user.uid === item.userId ? `
+                                <button onclick="window.confirmDelete(event, '${item.id}')" class="p-1 text-gray-700 hover:text-red-500 transition-colors">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                        <h3 class="font-black text-xl mb-1 truncate text-white">${item.name}</h3>
+                        <p class="text-gray-500 text-[10px] font-medium tracking-wide">由 ${item.userName || '匿名'} 收藏</p>
+                        
+                        <div class="mt-6 pt-6 border-t border-gray-800/50 flex justify-between items-center text-[10px] text-gray-600 font-mono italic">
+                            <span>${item.date}</span>
+                            <i data-lucide="arrow-right" class="w-4 h-4 text-blue-600"></i>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            if (filtered.length === 0) {
+                UI.itemsContainer.innerHTML = `
+                    <div class="col-span-full flex flex-col items-center justify-center py-20 opacity-30">
+                        <i data-lucide="database" class="w-16 h-16 mb-4"></i>
+                        <p class="font-black text-xl">目前尚無收藏</p>
+                    </div>
+                `;
+            }
+
+            lucide.createIcons();
+        };
+
+        const renderNav = () => {
+            UI.categoryList.innerHTML = state.categories.map(cat => `
+                <button onclick="window.setCategory('${cat}')" 
+                    class="w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${state.currentCategory === cat ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'hover:bg-gray-800/40 text-gray-400'}">
+                    <i data-lucide="layers" class="w-4 h-4"></i>
+                    <span class="text-sm font-bold">${cat}</span>
+                </button>
+            `).join('');
+            
+            UI.inputCategory.innerHTML = state.categories.filter(c => c !== '全部').map(c => `
+                <option value="${c}">${c}</option>
+            `).join('');
+
+            lucide.createIcons();
+        };
+
+        // --- 7. 事件操作 ---
+        window.setCategory = (cat) => {
+            state.currentCategory = cat;
+            renderNav();
+            renderCollection();
+        };
+
+        window.toggleFav = async (e, id, current) => {
+            e.stopPropagation();
+            if (!state.user) return;
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'collections', id);
+            await updateDoc(ref, { favorite: !current });
+        };
+
+        window.confirmDelete = async (e, id) => {
+            e.stopPropagation();
+            if (confirm("確定要將這件珍貴的收藏從雲端移除嗎？")) {
+                const ref = doc(db, 'artifacts', appId, 'public', 'data', 'collections', id);
+                await deleteDoc(ref);
+            }
+        };
+
+        window.viewItem = (id) => {
+            const item = state.items.find(i => i.id === id);
+            if (!item) return;
+
+            UI.modalDetail.innerHTML = `
+                <div class="relative w-full max-w-5xl rounded-[3rem] border-2 border-gray-800 bg-[#0c0c0f] shadow-2xl flex flex-col md:flex-row overflow-hidden">
+                    <button onclick="window.closeDetail()" class="absolute top-8 right-8 p-3 bg-gray-800/80 text-white hover:bg-red-500 rounded-2xl z-20">
+                        <i data-lucide="x" class="w-6 h-6"></i>
+                    </button>
+                    <div class="w-full md:w-1/2 aspect-square flex items-center justify-center bg-gray-900/30">
+                        ${item.image && item.image.startsWith('data:image') 
+                            ? `<img src="${item.image}" class="w-full h-full object-cover">`
+                            : `<span class="text-[12rem] drop-shadow-2xl">${item.image || '📦'}</span>`
+                        }
+                    </div>
+                    <div class="w-full md:w-1/2 p-16 flex flex-col justify-center">
+                        <div class="flex items-center gap-3 mb-6">
+                            <span class="px-4 py-1.5 bg-blue-600/20 text-blue-400 rounded-full text-xs font-black uppercase border border-blue-500/20">${item.category}</span>
+                            <span class="text-[10px] text-gray-500 font-mono tracking-widest uppercase">${item.date} 入庫</span>
+                        </div>
+                        <h2 class="text-6xl font-black mb-8 tracking-tighter text-white leading-tight">${item.name}</h2>
+                        <p class="text-gray-400 text-xl leading-relaxed italic mb-12 border-l-4 border-blue-600 pl-8">${item.description || "持有人尚未為此收藏編寫背景故事。"}</p>
+                        
+                        <div class="mt-auto flex items-center gap-4 p-6 rounded-3xl bg-gray-900/50 border border-gray-800">
+                            <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">
+                                ${item.userName ? item.userName.charAt(0) : 'U'}
+                            </div>
+                            <div class="flex flex-col">
+                                <p class="text-xs font-black text-gray-400">數位持有者</p>
+                                <p class="text-sm font-bold text-white">${item.userName || '匿名收藏家'}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            UI.modalDetail.classList.remove('hidden');
+            lucide.createIcons();
+        };
+
+        window.closeDetail = () => UI.modalDetail.classList.add('hidden');
+
+        // --- 8. 表單提交與圖片處理 ---
+        UI.formAdd.onsubmit = async (e) => {
+            e.preventDefault();
+            if (!state.user) return;
+
+            const emojiInput = document.getElementById('input-emoji').value;
+            const newItem = {
+                name: document.getElementById('input-name').value,
+                category: document.getElementById('input-category').value,
+                description: document.getElementById('input-desc').value,
+                image: state.base64Img || emojiInput || '📦',
+                userId: state.user.uid,
+                userName: state.user.isAnonymous ? '訪客收藏家' : (state.user.displayName || '收藏家'),
+                date: new Date().toISOString().split('T')[0],
+                favorite: false,
+                createdAt: Date.now()
+            };
+
+            try {
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'collections');
+                await addDoc(colRef, newItem);
+                
+                // 重設並關閉
+                UI.modalAdd.classList.add('hidden');
+                UI.formAdd.reset();
+                state.base64Img = null;
+                UI.previewContent.innerHTML = '📦';
+            } catch (err) {
+                console.error("Upload Error:", err);
+            }
+        };
+
+        document.getElementById('input-file').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (file.size > 800000) { alert("圖片太大了！請上傳 800KB 以下的檔案。"); return; }
+
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                state.base64Img = reader.result;
+                UI.previewContent.innerHTML = `<img src="${state.base64Img}" class="w-32 h-32 rounded-2xl object-cover shadow-2xl ring-4 ring-blue-500/20 scale-in animate-in duration-300">`;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        // 搜尋功能
+        document.getElementById('search-input').oninput = (e) => {
+            state.searchQuery = e.target.value;
+            renderCollection();
+        };
+
+        // 初始化
+        window.onload = () => {
+            renderNav();
+            initAuth();
+
+            document.getElementById('btn-open-add').onclick = () => UI.modalAdd.classList.remove('hidden');
+            document.getElementById('btn-close-add').onclick = () => UI.modalAdd.classList.add('hidden');
+            document.getElementById('btn-google-login').onclick = window.loginGoogle;
+            document.getElementById('btn-logout').onclick = window.logout;
+        };
+    </script>
+</body>
+</html>
