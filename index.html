@@ -118,6 +118,18 @@
                 <!-- 背景流光 -->
                 <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/5 blur-[120px] -z-10"></div>
                 
+                <!-- Firestore 規則權限錯誤提示橫幅 (預設隱藏) -->
+                <div id="firestore-error-banner" class="hidden mb-8 p-6 bg-amber-500/10 border border-amber-500/20 rounded-3xl flex flex-col gap-3 fade-in">
+                    <div class="flex items-center gap-2.5">
+                        <i data-lucide="alert-triangle" class="text-amber-500 w-5 h-5 shrink-0"></i>
+                        <p class="font-black text-amber-400 text-sm">Firestore 資料庫權限不足 (連線拒絕)</p>
+                    </div>
+                    <p class="text-xs text-gray-400 leading-relaxed">
+                        系統已成功與您的 Firebase 專案連線，但資料庫的安全規則拒絕了讀取。請前往您的 <strong>Firebase Console -> Firestore Database -> Rules (規則)</strong> 標籤頁面，貼上以下安全規則並點擊「發布 (Publish)」即可正常顯示：
+                    </p>
+                    <pre id="rules-code-block" class="bg-gray-950 p-4 rounded-2xl text-[10px] text-gray-300 font-mono overflow-x-auto select-all leading-relaxed border border-gray-800/80"></pre>
+                </div>
+
                 <!-- 載入狀態 -->
                 <div id="loading-state" class="flex flex-col items-center justify-center py-32 h-full">
                     <i data-lucide="loader-2" class="w-12 h-12 text-blue-600 loading-spin mb-4"></i>
@@ -192,7 +204,7 @@
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, updateDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- 1. 安全初始化 Firebase 連線設定 (防止未定義時報錯) ---
+        // --- 1. 安全初始化 Firebase 連線設定 ---
         const firebaseConfig = typeof __firebase_config !== 'undefined' 
             ? JSON.parse(__firebase_config) 
             : {
@@ -233,20 +245,23 @@
             authErrorBox: document.getElementById('auth-error-box'),
             authErrorMsg: document.getElementById('auth-error-msg'),
             previewContent: document.getElementById('preview-content'),
-            formAdd: document.getElementById('form-add')
+            formAdd: document.getElementById('form-add'),
+            errorBanner: document.getElementById('firestore-error-banner'),
+            rulesCodeBlock: document.getElementById('rules-code-block')
         };
 
-        // --- 4. 驗證與登入邏輯 ---
+        // --- 4. 驗證與登入邏輯 (符合 Rule 3 先驗證、後監聽) ---
         const initAuth = async () => {
+            // 監聽驗證狀態改變
             onAuthStateChanged(auth, async (user) => {
                 state.user = user;
                 if (user) {
                     updateUserProfile(user);
                     document.getElementById('btn-google-login').classList.add('hidden');
                     document.getElementById('btn-logout').classList.remove('hidden');
-                    startDataSync(); // 登入後才開始同步
+                    startDataSync(); // 認證成功後，才啟動資料同步
                 } else {
-                    // 若無使用者，嘗試自動匿名登入 (符合 Rule 3)
+                    // 若無使用者，先進行自動登入 (符合 Rule 3 的 strict flow)
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await signInWithCustomToken(auth, __initial_auth_token);
@@ -265,6 +280,9 @@
             UI.userStatus.innerText = user.isAnonymous ? '匿名模式' : user.email;
             if (user.photoURL) {
                 UI.userAvatar.innerHTML = `<img src="${user.photoURL}" class="w-full h-full object-cover">`;
+            } else {
+                UI.userAvatar.innerHTML = `<i data-lucide="user" class="text-white w-4 h-4"></i>`;
+                lucide.createIcons();
             }
         };
 
@@ -277,6 +295,7 @@
                 if (err.code === 'auth/unauthorized-domain') {
                     UI.authErrorMsg.innerText = "此網域尚未授權。請於 Firebase 設定中將本網域加入白名單。目前為匿名模式。";
                     UI.authErrorBox.classList.remove('hidden');
+                    lucide.createIcons();
                 }
             }
         };
@@ -285,6 +304,8 @@
 
         // --- 5. Firestore 資料同步 ---
         const startDataSync = () => {
+            if (!state.user) return; // Guard! 確保有驗證狀態才執行
+
             // Rule 1: 公共路徑格式
             const q = collection(db, 'artifacts', appId, 'public', 'data', 'collections');
             
@@ -292,9 +313,21 @@
                 state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderCollection();
                 UI.loadingState.classList.add('hidden');
+                UI.errorBanner.classList.add('hidden'); // 讀取成功時隱藏錯誤橫幅
             }, (error) => {
                 console.error("Firestore Error:", error);
+                if (error.code === 'permission-denied') {
+                    showRulesError();
+                }
             });
+        };
+
+        // 顯示安全性規則設定錯誤與排解指南
+        const showRulesError = () => {
+            UI.rulesCodeBlock.innerText = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /artifacts/${appId}/public/data/{collectionName}/{documentId} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
+            UI.errorBanner.classList.remove('hidden');
+            UI.loadingState.classList.add('hidden');
+            lucide.createIcons();
         };
 
         // --- 6. 渲染邏輯 ---
