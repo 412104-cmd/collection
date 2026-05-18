@@ -350,9 +350,9 @@
             UI.loadingState.classList.add('hidden');
         };
 
-        // 當安全性規則阻擋時，顯示防呆指南
+        // 當安全性規則阻擋時，顯示防呆指南 (採用全域萬用字元 {appId} 格式，方便直接複製貼上)
         const showRulesError = () => {
-            UI.rulesCodeBlock.innerText = `rules_version = '2';\n\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /artifacts/${appId}/public/data/{collectionName}/{documentId} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
+            UI.rulesCodeBlock.innerText = `rules_version = '2';\n\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /artifacts/{appId}/public/data/{collectionName}/{documentId} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
             UI.errorBanner.classList.remove('hidden');
             lucide.createIcons();
         };
