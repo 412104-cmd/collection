@@ -118,23 +118,7 @@
                 <!-- 背景流光 -->
                 <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/5 blur-[120px] -z-10"></div>
                 
-                <!-- Firestore 規則權限錯誤提示橫幅 (當讀取失敗時顯示，並提供快速複製功能) -->
-                <div id="firestore-error-banner" class="hidden mb-8 p-6 bg-amber-500/10 border border-amber-500/20 rounded-3xl flex flex-col gap-3 fade-in">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-2.5">
-                            <i data-lucide="alert-triangle" class="text-amber-500 w-5 h-5 shrink-0"></i>
-                            <p class="font-black text-amber-400 text-sm">Firestore 安全規則拒絕存取（目前啟動本地沙盒模式備援）</p>
-                        </div>
-                        <span class="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-1 rounded-lg">Sandbox Mode Active</span>
-                    </div>
-                    <p class="text-xs text-gray-400 leading-relaxed">
-                        系統已成功連線至您的 Firebase 專案，但資料庫規則阻擋了讀取。
-                        <strong>我們已自動為您切換至本地獨立存儲，您依然可以自由地新增、刪除、珍藏物件！</strong> 
-                        若想完全啟用雲端多端同步，請將以下規則貼至您的 <strong>Firebase Console -> Firestore Database -> Rules (規則)</strong> 中：
-                    </p>
-                    <pre id="rules-code-block" class="bg-gray-950 p-4 rounded-2xl text-[11px] text-gray-300 font-mono overflow-x-auto select-all leading-relaxed border border-gray-800/80"></pre>
-                </div>
-
+              
                 <!-- 載入狀態 -->
                 <div id="loading-state" class="flex flex-col items-center justify-center py-32 h-full">
                     <i data-lucide="loader-2" class="w-12 h-12 text-blue-600 loading-spin mb-4"></i>
