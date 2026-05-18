@@ -227,6 +227,13 @@
         import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, updateDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // =========================================================================
+        // 【核心優化】最上層同步環境判定 (同步攔截阻止任何 Auth 與 COOP 重定向通訊腳本啟動)
+        // =========================================================================
+        const isIframe = window.self !== window.top || 
+                         window.location.hostname.includes('usercontent.goog') || 
+                         (window.location.ancestorOrigins && window.location.ancestorOrigins.length > 0);
+
         // --- 1. 安全初始化 Firebase 連線設定 ---
         const firebaseConfig = typeof __firebase_config !== 'undefined' 
             ? JSON.parse(__firebase_config) 
@@ -240,14 +247,11 @@
               };
 
         const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-        // 判斷是否處於沙盒/嵌套 iframe 環境中（更加嚴格的環境特徵嗅探）
-        const isIframe = window.self !== window.top || 
-                         window.location.hostname.includes('usercontent.goog') || 
-                         (window.location.ancestorOrigins && window.location.ancestorOrigins.length > 0);
+        // 宣告全域 Auth 實例變數 (沙盒中保持 null)
+        let auth = null;
 
         // 預設精美備援收藏數據 (防起步空白)
         const mockCollections = [
@@ -343,19 +347,33 @@
             lucide.createIcons();
         };
 
-        // --- 5. 驗證與登入邏輯 (嚴格遵循 Rule 3) ---
+        // --- 5. 驗證與登入邏輯 ---
         const initAuth = async () => {
-            // 安全守護：在 iframe/沙盒環境下，徹底不呼叫 getRedirectResult
-            // 這能從根本上阻止 Firebase Auth 拋出 "INTERNAL ASSERTION FAILED: Pending promise was never set" 異常。
-            if (!isIframe) {
-                try {
-                    const result = await getRedirectResult(auth);
-                    if (result && result.user) {
-                        state.user = result.user;
-                    }
-                } catch (err) {
-                    console.warn("[Vault Engine Auth] 捕捉重定向登入結果時被安全政策封鎖:", err);
+            // 安全守護：在 iframe/沙盒環境下，徹底不呼叫任何 Firebase Auth 初始化 API！
+            // 這是完美防止 popup.ts 底層觸發 Cross-Origin-Opener-Policy 阻擋與 Assertion Failed 報錯的唯一極致解法。
+            if (isIframe) {
+                console.log("[Vault Engine Sandbox] 🟢 偵測到沙盒預覽環境，自動安全略過 Firebase Auth 初始化。");
+                enableLocalFallback(); // 直接秒速跳轉本地預覽，零延遲，零紅字警告
+                updateUserProfile({ isAnonymous: true });
+                return;
+            }
+
+            // 只有非沙盒環境下才初始化 Auth 模組
+            try {
+                auth = getAuth(app);
+            } catch (authInitError) {
+                console.warn("[Vault Engine Auth] Auth 模組加載失敗，切換至沙盒備援：", authInitError);
+                enableLocalFallback();
+                return;
+            }
+
+            try {
+                const result = await getRedirectResult(auth);
+                if (result && result.user) {
+                    state.user = result.user;
                 }
+            } catch (err) {
+                console.warn("[Vault Engine Auth] 捕捉重定向登入結果時被安全政策封鎖:", err);
             }
 
             try {
@@ -382,18 +400,21 @@
                 } else {
                     document.getElementById('btn-google-login').classList.remove('hidden');
                     document.getElementById('btn-logout').classList.add('hidden');
-                    
-                    // 如果在沙盒環境下，修改按鈕文字與邏輯
-                    if (isIframe) {
-                        const googleBtn = document.getElementById('btn-google-login');
-                        googleBtn.innerHTML = `<i data-lucide="sparkles" class="w-4 h-4"></i> 本地沙盒體驗中`;
-                        lucide.createIcons();
-                    }
                 }
             });
         };
 
         const updateUserProfile = (user) => {
+            if (isIframe) {
+                UI.userName.innerText = '沙盒體驗家';
+                UI.userStatus.innerText = '在地沙盒模式 (免登入)';
+                UI.userAvatar.innerHTML = `<i data-lucide="sparkles" class="text-blue-400 w-4 h-4"></i>`;
+                const googleBtn = document.getElementById('btn-google-login');
+                googleBtn.innerHTML = `<i data-lucide="sparkles" class="w-4 h-4"></i> 沙盒模式啟動中`;
+                lucide.createIcons();
+                return;
+            }
+
             UI.userName.innerText = user.isAnonymous ? '訪客收藏家' : (user.displayName || '收藏家');
             UI.userStatus.innerText = user.isAnonymous ? '匿名模式' : user.email;
             if (user.photoURL) {
@@ -411,6 +432,7 @@
                 return;
             }
 
+            if (!auth) return;
             const provider = new GoogleAuthProvider();
             try {
                 await signInWithRedirect(auth, provider);
@@ -422,11 +444,13 @@
             }
         };
 
-        window.logout = () => signOut(auth);
+        window.logout = () => {
+            if (auth) signOut(auth);
+        };
 
         // --- 6. Firestore 資料同步 ---
         const startDataSync = () => {
-            if (!state.user) return; // Guard! 確保安全
+            if (isIframe || !state.user) return; // Guard! 確保安全
 
             // 嚴格遵守 Rule 1 路徑格式
             const q = collection(db, 'artifacts', appId, 'public', 'data', 'collections');
