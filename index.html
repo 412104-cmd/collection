@@ -118,16 +118,21 @@
                 <!-- 背景流光 -->
                 <div class="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/5 blur-[120px] -z-10"></div>
                 
-                <!-- Firestore 規則權限錯誤提示橫幅 (預設隱藏) -->
+                <!-- Firestore 規則權限錯誤提示橫幅 (當讀取失敗時顯示，並提供快速複製功能) -->
                 <div id="firestore-error-banner" class="hidden mb-8 p-6 bg-amber-500/10 border border-amber-500/20 rounded-3xl flex flex-col gap-3 fade-in">
-                    <div class="flex items-center gap-2.5">
-                        <i data-lucide="alert-triangle" class="text-amber-500 w-5 h-5 shrink-0"></i>
-                        <p class="font-black text-amber-400 text-sm">Firestore 資料庫權限不足 (連線拒絕)</p>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2.5">
+                            <i data-lucide="alert-triangle" class="text-amber-500 w-5 h-5 shrink-0"></i>
+                            <p class="font-black text-amber-400 text-sm">Firestore 安全規則拒絕存取（目前啟動本地沙盒模式備援）</p>
+                        </div>
+                        <span class="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-1 rounded-lg">Sandbox Mode Active</span>
                     </div>
                     <p class="text-xs text-gray-400 leading-relaxed">
-                        系統已成功與您的 Firebase 專案連線，但資料庫的安全規則拒絕了讀取。請前往您的 <strong>Firebase Console -> Firestore Database -> Rules (規則)</strong> 標籤頁面，貼上以下安全規則並點擊「發布 (Publish)」即可正常顯示：
+                        系統已成功連線至您的 Firebase 專案，但資料庫規則阻擋了讀取。
+                        <strong>我們已自動為您切換至本地獨立存儲，您依然可以自由地新增、刪除、珍藏物件！</strong> 
+                        若想完全啟用雲端多端同步，請將以下規則貼至您的 <strong>Firebase Console -> Firestore Database -> Rules (規則)</strong> 中：
                     </p>
-                    <pre id="rules-code-block" class="bg-gray-950 p-4 rounded-2xl text-[10px] text-gray-300 font-mono overflow-x-auto select-all leading-relaxed border border-gray-800/80"></pre>
+                    <pre id="rules-code-block" class="bg-gray-950 p-4 rounded-2xl text-[11px] text-gray-300 font-mono overflow-x-auto select-all leading-relaxed border border-gray-800/80"></pre>
                 </div>
 
                 <!-- 載入狀態 -->
@@ -221,6 +226,13 @@
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
+        // 預設精美備援收藏數據 (防起步空白)
+        const mockCollections = [
+            { id: 'mock1', name: '古代青花瓷', category: '古董', description: '明朝宣德年間的青花瓷，工藝精湛，瓶身繪工細膩生動，堪稱傳世傑作。', image: '🏺', userId: 'mock-user-1', userName: '歷史守護者', date: '2023-05-12', favorite: true, createdAt: Date.now() - 5000 },
+            { id: 'mock2', name: '懷舊黑膠唱片', category: '音樂', description: '披頭四樂隊 1969 年發行的經典黑膠，極具時代情懷與收藏價值。', image: '📻', userId: 'mock-user-2', userName: '經典老樂迷', date: '2023-08-20', favorite: false, createdAt: Date.now() - 4000 },
+            { id: 'mock3', name: '初版噴火龍卡', category: '卡牌', description: '1999 年寶可夢首版無陰影噴火龍卡牌，保存近完美狀態。', image: '🐉', userId: 'mock-user-3', userName: '集卡大師', date: '2024-01-05', favorite: true, createdAt: Date.now() - 3000 }
+        ];
+
         // --- 2. 應用程式狀態 ---
         let state = {
             user: null,
@@ -228,7 +240,8 @@
             currentCategory: '全部',
             searchQuery: '',
             base64Img: null,
-            categories: ['全部', '古董', '音樂', '卡牌', '鐘錶', '藝術', '穿搭']
+            categories: ['全部', '古董', '音樂', '卡牌', '鐘錶', '藝術', '穿搭'],
+            localFallback: false // 是否已啟用本地/沙盒備援模式
         };
 
         // --- 3. UI 元素常數 ---
@@ -250,18 +263,16 @@
             rulesCodeBlock: document.getElementById('rules-code-block')
         };
 
-        // --- 4. 驗證與登入邏輯 (符合 Rule 3 先驗證、後監聽) ---
+        // --- 4. 驗證與登入邏輯 (嚴格遵循 Rule 3：先登入，再讀取資料) ---
         const initAuth = async () => {
-            // 監聽驗證狀態改變
             onAuthStateChanged(auth, async (user) => {
                 state.user = user;
                 if (user) {
                     updateUserProfile(user);
                     document.getElementById('btn-google-login').classList.add('hidden');
                     document.getElementById('btn-logout').classList.remove('hidden');
-                    startDataSync(); // 認證成功後，才啟動資料同步
+                    startDataSync(); // 登入完成後才啟用資料流
                 } else {
-                    // 若無使用者，先進行自動登入 (符合 Rule 3 的 strict flow)
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await signInWithCustomToken(auth, __initial_auth_token);
@@ -270,6 +281,7 @@
                         }
                     } catch (err) {
                         console.error("Auth Error:", err);
+                        enableLocalFallback(); // 認證極端失敗時，自動進入本地安全模式
                     }
                 }
             });
@@ -304,12 +316,13 @@
 
         // --- 5. Firestore 資料同步 ---
         const startDataSync = () => {
-            if (!state.user) return; // Guard! 確保有驗證狀態才執行
+            if (!state.user) return; // 雙重保護，未驗證完成不執行查詢
 
-            // Rule 1: 公共路徑格式
+            // 嚴格遵守 Rule 1 路徑：/artifacts/{appId}/public/data/{collectionName}
             const q = collection(db, 'artifacts', appId, 'public', 'data', 'collections');
             
             onSnapshot(q, (snapshot) => {
+                state.localFallback = false;
                 state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderCollection();
                 UI.loadingState.classList.add('hidden');
@@ -317,16 +330,30 @@
             }, (error) => {
                 console.error("Firestore Error:", error);
                 if (error.code === 'permission-denied') {
+                    enableLocalFallback(); // 權限被拒，切換為本地安全體驗
                     showRulesError();
                 }
             });
         };
 
-        // 顯示安全性規則設定錯誤與排解指南
-        const showRulesError = () => {
-            UI.rulesCodeBlock.innerText = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /artifacts/${appId}/public/data/{collectionName}/{documentId} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
-            UI.errorBanner.classList.remove('hidden');
+        // 啟動本地沙盒儲存備援，絕不卡死加載
+        const enableLocalFallback = () => {
+            state.localFallback = true;
+            const stored = localStorage.getItem(`vault_local_items_${appId}`);
+            if (stored) {
+                state.items = JSON.parse(stored);
+            } else {
+                state.items = [...mockCollections];
+                localStorage.setItem(`vault_local_items_${appId}`, JSON.stringify(state.items));
+            }
+            renderCollection();
             UI.loadingState.classList.add('hidden');
+        };
+
+        // 當安全性規則阻擋時，顯示防呆指南
+        const showRulesError = () => {
+            UI.rulesCodeBlock.innerText = `rules_version = '2';\n\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /artifacts/${appId}/public/data/{collectionName}/{documentId} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
+            UI.errorBanner.classList.remove('hidden');
             lucide.createIcons();
         };
 
@@ -355,7 +382,7 @@
                     <div class="p-8">
                         <div class="flex justify-between items-start mb-3">
                             <span class="px-2.5 py-1 bg-blue-500/10 text-[10px] font-black text-blue-400 rounded-lg uppercase tracking-tighter border border-blue-500/10">${item.category}</span>
-                            ${state.user && state.user.uid === item.userId ? `
+                            ${state.localFallback || (state.user && state.user.uid === item.userId) ? `
                                 <button onclick="window.confirmDelete(event, '${item.id}')" class="p-1 text-gray-700 hover:text-red-500 transition-colors">
                                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                                 </button>
@@ -409,6 +436,12 @@
 
         window.toggleFav = async (e, id, current) => {
             e.stopPropagation();
+            if (state.localFallback) {
+                state.items = state.items.map(item => item.id === id ? { ...item, favorite: !current } : item);
+                localStorage.setItem(`vault_local_items_${appId}`, JSON.stringify(state.items));
+                renderCollection();
+                return;
+            }
             if (!state.user) return;
             const ref = doc(db, 'artifacts', appId, 'public', 'data', 'collections', id);
             await updateDoc(ref, { favorite: !current });
@@ -416,7 +449,13 @@
 
         window.confirmDelete = async (e, id) => {
             e.stopPropagation();
-            if (confirm("確定要將這件珍貴的收藏從雲端移除嗎？")) {
+            if (confirm("確定要將這件珍貴的收藏移除嗎？")) {
+                if (state.localFallback) {
+                    state.items = state.items.filter(item => item.id !== id);
+                    localStorage.setItem(`vault_local_items_${appId}`, JSON.stringify(state.items));
+                    renderCollection();
+                    return;
+                }
                 const ref = doc(db, 'artifacts', appId, 'public', 'data', 'collections', id);
                 await deleteDoc(ref);
             }
@@ -466,26 +505,41 @@
         // --- 8. 表單提交與圖片處理 ---
         UI.formAdd.onsubmit = async (e) => {
             e.preventDefault();
-            if (!state.user) return;
+            if (!state.user && !state.localFallback) return;
 
             const emojiInput = document.getElementById('input-emoji').value;
             const newItem = {
+                id: state.localFallback ? 'local_' + Date.now() : null, // 本地模式自建臨時 ID
                 name: document.getElementById('input-name').value,
                 category: document.getElementById('input-category').value,
                 description: document.getElementById('input-desc').value,
                 image: state.base64Img || emojiInput || '📦',
-                userId: state.user.uid,
-                userName: state.user.isAnonymous ? '訪客收藏家' : (state.user.displayName || '收藏家'),
+                userId: state.user ? state.user.uid : 'local-user',
+                userName: state.user && !state.user.isAnonymous ? state.user.displayName : '訪客收藏家',
                 date: new Date().toISOString().split('T')[0],
                 favorite: false,
                 createdAt: Date.now()
             };
 
+            if (state.localFallback) {
+                state.items.unshift(newItem);
+                localStorage.setItem(`vault_local_items_${appId}`, JSON.stringify(state.items));
+                renderCollection();
+                
+                // 重設並關閉視窗
+                UI.modalAdd.classList.add('hidden');
+                UI.formAdd.reset();
+                state.base64Img = null;
+                UI.previewContent.innerHTML = '📦';
+                return;
+            }
+
             try {
+                // 去除 ID 欄位讓 Firestore 自動生成
+                delete newItem.id;
                 const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'collections');
                 await addDoc(colRef, newItem);
                 
-                // 重設並關閉
                 UI.modalAdd.classList.add('hidden');
                 UI.formAdd.reset();
                 state.base64Img = null;
