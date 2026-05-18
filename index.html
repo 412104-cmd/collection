@@ -192,8 +192,18 @@
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, updateDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- 1. 初始化 Firebase ---
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // --- 1. 安全初始化 Firebase 連線設定 (防止未定義時報錯) ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : {
+                apiKey: "AIzaSyCgbpw8ertvzzX2sJeqm4-vbP09Nm8br3M",
+                authDomain: "collect-4b5ff.firebaseapp.com",
+                projectId: "collect-4b5ff",
+                storageBucket: "collect-4b5ff.firebasestorage.app",
+                messagingSenderId: "818561055132",
+                appId: "1:818561055132:web:e031ad633fad875c22f059"
+              };
+
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
