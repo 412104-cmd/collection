@@ -201,6 +201,24 @@
         <div id="modal-detail" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in zoom-in-95">
             <!-- 內容由 JS 動態生成 -->
         </div>
+
+        <!-- 自定義精美對話視窗 / 確認視窗 Modal -->
+        <div id="custom-dialog" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+            <div class="w-full max-w-md rounded-[2.5rem] border border-gray-800 bg-[#111114] p-8 shadow-2xl relative overflow-hidden">
+                <div class="flex items-center gap-4 mb-6">
+                    <div id="dialog-icon-container" class="w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg">
+                        <!-- 動態載入圖示 -->
+                    </div>
+                    <h3 id="dialog-title" class="font-black text-xl text-white">提示</h3>
+                </div>
+                <p id="dialog-message" class="text-gray-400 text-sm leading-relaxed mb-8"></p>
+                <div class="flex gap-3 justify-end">
+                    <button id="dialog-btn-cancel" class="px-6 py-3 rounded-2xl text-xs font-bold bg-gray-900 hover:bg-gray-800 text-gray-400 border border-gray-800 transition-all active:scale-95">取消</button>
+                    <button id="dialog-btn-confirm" class="px-6 py-3 rounded-2xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-lg active:scale-95">確定</button>
+                </div>
+                <div class="absolute -bottom-10 -right-10 w-32 h-32 bg-blue-500/5 blur-2xl"></div>
+            </div>
+        </div>
     </div>
 
     <!-- Firebase SDK & 核心邏輯 -->
@@ -263,26 +281,88 @@
             rulesCodeBlock: document.getElementById('rules-code-block')
         };
 
-        // --- 4. 驗證與登入邏輯 (嚴格遵循 Rule 3：先登入，再讀取資料) ---
+        // --- 4. 自定義對話框控制常數 ---
+        window.customAlert = (message, title = "提示", type = "info") => {
+            const dialog = document.getElementById('custom-dialog');
+            const titleEl = document.getElementById('dialog-title');
+            const msgEl = document.getElementById('dialog-message');
+            const iconContainer = document.getElementById('dialog-icon-container');
+            const btnCancel = document.getElementById('dialog-btn-cancel');
+            const btnConfirm = document.getElementById('dialog-btn-confirm');
+
+            titleEl.innerText = title;
+            msgEl.innerText = message;
+            btnCancel.classList.add('hidden'); // 警告彈窗不需要取消按鈕
+
+            if (type === 'error') {
+                iconContainer.className = "w-11 h-11 rounded-2xl flex items-center justify-center bg-red-500/10 text-red-500";
+                iconContainer.innerHTML = `<i data-lucide="alert-circle" class="w-5 h-5"></i>`;
+            } else {
+                iconContainer.className = "w-11 h-11 rounded-2xl flex items-center justify-center bg-blue-500/10 text-blue-500";
+                iconContainer.innerHTML = `<i data-lucide="info" class="w-5 h-5"></i>`;
+            }
+
+            btnConfirm.onclick = () => {
+                dialog.classList.add('hidden');
+            };
+
+            dialog.classList.remove('hidden');
+            lucide.createIcons();
+        };
+
+        window.customConfirm = (message, onConfirm, title = "確認操作") => {
+            const dialog = document.getElementById('custom-dialog');
+            const titleEl = document.getElementById('dialog-title');
+            const msgEl = document.getElementById('dialog-message');
+            const iconContainer = document.getElementById('dialog-icon-container');
+            const btnCancel = document.getElementById('dialog-btn-cancel');
+            const btnConfirm = document.getElementById('dialog-btn-confirm');
+
+            titleEl.innerText = title;
+            msgEl.innerText = message;
+            btnCancel.classList.remove('hidden');
+
+            iconContainer.className = "w-11 h-11 rounded-2xl flex items-center justify-center bg-amber-500/10 text-amber-500";
+            iconContainer.innerHTML = `<i data-lucide="help-circle" class="w-5 h-5"></i>`;
+
+            btnCancel.onclick = () => {
+                dialog.classList.add('hidden');
+            };
+
+            btnConfirm.onclick = () => {
+                dialog.classList.add('hidden');
+                onConfirm();
+            };
+
+            dialog.classList.remove('hidden');
+            lucide.createIcons();
+        };
+
+        // --- 5. 驗證與登入邏輯 (嚴格遵循 Rule 3：先異步登入成功，才執行監聽與操作) ---
         const initAuth = async () => {
+            try {
+                // FIRST: 優先且獨立執行登入
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.warn("[Vault Engine Auth] 驗證機制連線失敗，自動啟用本地沙盒備援模式。原因:", err);
+                enableLocalFallback();
+            }
+
+            // THEN: 登入動作註冊完成後，才綁定監聽器
             onAuthStateChanged(auth, async (user) => {
                 state.user = user;
                 if (user) {
                     updateUserProfile(user);
                     document.getElementById('btn-google-login').classList.add('hidden');
                     document.getElementById('btn-logout').classList.remove('hidden');
-                    startDataSync(); // 登入完成後才啟用資料流
+                    startDataSync(); // 認證完成，安全啟動資料流
                 } else {
-                    try {
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await signInWithCustomToken(auth, __initial_auth_token);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    } catch (err) {
-                        console.error("Auth Error:", err);
-                        enableLocalFallback(); // 認證極端失敗時，自動進入本地安全模式
-                    }
+                    document.getElementById('btn-google-login').classList.remove('hidden');
+                    document.getElementById('btn-logout').classList.add('hidden');
                 }
             });
         };
@@ -314,11 +394,11 @@
 
         window.logout = () => signOut(auth);
 
-        // --- 5. Firestore 資料同步 ---
+        // --- 6. Firestore 資料同步 ---
         const startDataSync = () => {
-            if (!state.user) return; // 雙重保護，未驗證完成不執行查詢
+            if (!state.user) return; // Guard! 確保安全
 
-            // 嚴格遵守 Rule 1 路徑：/artifacts/{appId}/public/data/{collectionName}
+            // 嚴格遵守 Rule 1 路徑格式
             const q = collection(db, 'artifacts', appId, 'public', 'data', 'collections');
             
             onSnapshot(q, (snapshot) => {
@@ -326,12 +406,18 @@
                 state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderCollection();
                 UI.loadingState.classList.add('hidden');
-                UI.errorBanner.classList.add('hidden'); // 讀取成功時隱藏錯誤橫幅
+                UI.errorBanner.classList.add('hidden'); 
             }, (error) => {
-                console.error("Firestore Error:", error);
                 if (error.code === 'permission-denied') {
-                    enableLocalFallback(); // 權限被拒，切換為本地安全體驗
+                    // 以優雅乾淨的 Console 警告代替紅色 Uncaught 阻礙開發
+                    console.warn(
+                        "%c[Firestore Vault Engine] 🟢 偵測到 Firebase Firestore 規則限制，已自動啟動「在地沙盒模式」供您預覽。請參考網頁頂部指引以配置您的 rules。",
+                        "color: #f59e0b; font-weight: bold; font-size: 12px; font-family: sans-serif;"
+                    );
+                    enableLocalFallback(); // 權限被拒，直接無痛切換為本地沙盒體驗
                     showRulesError();
+                } else {
+                    console.error("Firestore Error:", error);
                 }
             });
         };
@@ -350,14 +436,14 @@
             UI.loadingState.classList.add('hidden');
         };
 
-        // 當安全性規則阻擋時，顯示防呆指南 (採用全域萬用字元 {appId} 格式，方便直接複製貼上)
+        // 當安全性規則阻擋時，顯示防呆指引
         const showRulesError = () => {
             UI.rulesCodeBlock.innerText = `rules_version = '2';\n\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /artifacts/{appId}/public/data/{collectionName}/{documentId} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
             UI.errorBanner.classList.remove('hidden');
             lucide.createIcons();
         };
 
-        // --- 6. 渲染邏輯 ---
+        // --- 7. 渲染邏輯 ---
         const renderCollection = () => {
             const filtered = state.items.filter(item => {
                 const matchCat = state.currentCategory === '全部' || item.category === state.currentCategory;
@@ -427,7 +513,7 @@
             lucide.createIcons();
         };
 
-        // --- 7. 事件操作 ---
+        // --- 8. 事件操作 ---
         window.setCategory = (cat) => {
             state.currentCategory = cat;
             renderNav();
@@ -447,9 +533,9 @@
             await updateDoc(ref, { favorite: !current });
         };
 
-        window.confirmDelete = async (e, id) => {
+        window.confirmDelete = (e, id) => {
             e.stopPropagation();
-            if (confirm("確定要將這件珍貴的收藏移除嗎？")) {
+            window.customConfirm("確定要將這件珍貴的收藏移除嗎？", async () => {
                 if (state.localFallback) {
                     state.items = state.items.filter(item => item.id !== id);
                     localStorage.setItem(`vault_local_items_${appId}`, JSON.stringify(state.items));
@@ -458,7 +544,7 @@
                 }
                 const ref = doc(db, 'artifacts', appId, 'public', 'data', 'collections', id);
                 await deleteDoc(ref);
-            }
+            }, "移除資產確認");
         };
 
         window.viewItem = (id) => {
@@ -502,7 +588,7 @@
 
         window.closeDetail = () => UI.modalDetail.classList.add('hidden');
 
-        // --- 8. 表單提交與圖片處理 ---
+        // --- 9. 表單提交與圖片處理 ---
         UI.formAdd.onsubmit = async (e) => {
             e.preventDefault();
             if (!state.user && !state.localFallback) return;
@@ -552,7 +638,10 @@
         document.getElementById('input-file').onchange = (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            if (file.size > 800000) { alert("圖片太大了！請上傳 800KB 以下的檔案。"); return; }
+            if (file.size > 800000) { 
+                window.customAlert("上傳的圖片不可大於 800KB！請重新挑選輕量化檔案。", "檔案限制", "error");
+                return; 
+            }
 
             const reader = new FileReader();
             reader.onloadend = () => {
